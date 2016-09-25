@@ -12,7 +12,7 @@ namespace SageSDO
         private const string sAccDataPath = @"C:\ProgramData\Sage\Accounts\2016\Company.000\ACCDATA";
         // NB To Free up Accounts data folder
         // C:\ProgramData\Sage\Accounts\2016\Company.000\ACCDATA\ delete file QUEUE.DTA
-        
+        // NB Project Requires Reference to Sage Data Objects 22.0 see Add Reference -> COM 
 
         static void Main(string[] args)
         {
