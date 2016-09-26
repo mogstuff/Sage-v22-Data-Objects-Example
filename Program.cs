@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,25 +12,30 @@ namespace SageSDO
         private const string sAccDataPath = @"C:\ProgramData\Sage\Accounts\2016\Company.000\ACCDATA";
         // NB To Free up Accounts data folder
         // C:\ProgramData\Sage\Accounts\2016\Company.000\ACCDATA\ delete file QUEUE.DTA
-        // NB Project Requires Reference to Sage Data Objects 22.0 see Add Reference -> COM 
+
 
         static void Main(string[] args)
         {
 
-              int iSalesPaymentSplit = 0;
-      
-
+            int iSalesPaymentSplit = 0;
             // get split on Invoice 5 and read through the info(5,6,7)
             SageDataObject220.SDOEngine oSDO = new SageDataObject220.SDOEngine();
             SageDataObject220.WorkSpace oWS;
             SageDataObject220.SalesRecord oSalesRecord;
+
             SageDataObject220.HeaderData oHeaderData;
+
             SageDataObject220.SplitData oSplitData;
-            //  SageDataObject220.InvoiceRecord oInvoiceRecord;
             SageDataObject220.SplitData oPaymentSplitData;
             SageDataObject220.SplitData oCreditNoteSplitData;
             SageDataObject220.SplitData oSalesPaymentSplitData;
 
+            bool bTransactionFound = false;
+            bool bSalesPaymentFound = false;
+
+            List<int> iCreditNoteSplits = new List<int>();
+
+            int intSalesPaymentFirstSplit = 0;
 
             string szDataPath;
             oWS = (SageDataObject220.WorkSpace)oSDO.Workspaces.Add("Example");
@@ -40,12 +45,11 @@ namespace SageSDO
 
             try
             {
-                oWS.Connect(szDataPath, "manager", "", "MORGAN TECH");
+                oWS.Connect(szDataPath, "manager", "$Password", "MORGAN TECH");
 
                 oSalesRecord = (SageDataObject220.SalesRecord)oWS.CreateObject("SalesRecord");
                 string sAccountRef = "A001";
                 oSalesRecord.Fields.Item("ACCOUNT_REF").Value = sAccountRef;
-
 
                 // Get the Customer Record
                 if (oSalesRecord.Find(false))
@@ -55,10 +59,50 @@ namespace SageSDO
                     oHeaderData = (SageDataObject220.HeaderData)oSalesRecord.Link;
                     oHeaderData.MoveFirst();
 
+                    // get first split for Payment ?
+                    iSalesPaymentSplit = 15;
+                    
+                    // get Splits for Credit Note INV_REF "5"
+                    do
+                    {
+
+                        if (oHeaderData.Fields.Item("INV_REF").Value == "5")
+                        {
+                            bTransactionFound = true;
+                            oCreditNoteSplitData = (SageDataObject220.SplitData)oHeaderData.Link;
+                            oCreditNoteSplitData.MoveFirst();
+
+                            do
+                            {
+                                string itemDetails = oCreditNoteSplitData.Fields.Item("DETAILS").Value;
+                                double netAmount = oCreditNoteSplitData.Fields.Item("NET_AMOUNT").Value;
+                                double taxAmount = oCreditNoteSplitData.Fields.Item("TAX_AMOUNT").Value;
+                                int transNo = oCreditNoteSplitData.Fields.Item("TRAN_NUMBER").Value;
+                                int uniqueRef = oCreditNoteSplitData.Fields.Item("UNIQUE_REF").Value;
+
+                                string message = string.Format("CRN Details : {0}  Net : {1} VAT {2} TransNo {3} Unique Ref {4}", itemDetails, netAmount, taxAmount, transNo, uniqueRef);
+
+                                SageDataObject220.TransactionPost oPostSalesPaymentSalesCreditAllocation = (SageDataObject220.TransactionPost)oWS.CreateObject("TransactionPost");
+
+                              
+                                double amount = netAmount + taxAmount;
+                                if (oPostSalesPaymentSalesCreditAllocation.AllocatePayment(transNo, iSalesPaymentSplit, amount, System.DateTime.Now))
+                                {
+                                    Console.WriteLine(string.Format("transNo {0} allocated net {1} tax {2}",transNo,netAmount,taxAmount));
+                                }
+
+
+                            } while (!(!(oCreditNoteSplitData.MoveNext())));
+
+
+                        }
+                    } while (!(!(oHeaderData.MoveNext())) && bTransactionFound == false);
+
+
+
                     // Get No Of Splits
                     int iSplitCount = oHeaderData.Fields.Item("NO_OF_SPLIT").Value;
-                    
-               
+
                     while (oHeaderData.MoveNext())
                     {
                         // type of transaction
@@ -68,11 +112,10 @@ namespace SageSDO
                         //4 Sales Receipt on Account
                         //24 Sales Payment
                         sbyte bType = oHeaderData.Fields.Item("TYPE").Value;
-                        
+
                         // Get Credit Note based on INV_REF 4
                         #region Credit Note
 
-                   
                         if (oHeaderData.Fields.Item("INV_REF").Value == "4")
                         {
 
@@ -99,7 +142,7 @@ namespace SageSDO
                                 uniqueRef = oCreditNoteSplitData.Fields.Item("UNIQUE_REF").Value;
 
                                 message = string.Format("CRN Details : {0}  Net : {1} VAT {2} TransNo {3} Unique Ref {4}", itemDetails, netAmount, taxAmount, transNo, uniqueRef);
-                                
+
                                 Console.WriteLine(message);
                                 Console.ReadLine();
 
@@ -108,7 +151,6 @@ namespace SageSDO
                         }
 
                         #endregion
-
 
                         // get Sales Payment (Refund)
                         #region Sales Payment (Refund)
@@ -137,7 +179,6 @@ namespace SageSDO
 
                         #endregion
 
-
                         // allocate the sales payment against the credit note
                         #region Allocate
 
@@ -145,8 +186,6 @@ namespace SageSDO
                         // iSalesPaymentSplit  - first split of Sales Payment
                         if (oHeaderData.Fields.Item("INV_REF").Value == "4")
                         {
-
-
                             SageDataObject220.TransactionPost oPost = (SageDataObject220.TransactionPost)oWS.CreateObject("TransactionPost");
 
                             // REF 4, Split 10 5.39, 11 2.40
@@ -165,8 +204,8 @@ namespace SageSDO
                             iSalesPaymentSplit = 12;
 
                             double amount = netAmount + taxAmount;
-                            if (oPost.AllocatePayment(transNo, iSalesPaymentSplit, amount, System.DateTime.Now)) 
-                            { 
+                            if (oPost.AllocatePayment(transNo, iSalesPaymentSplit, amount, System.DateTime.Now))
+                            {
                                 Console.WriteLine("first amount allocated");
                             }
 
@@ -183,7 +222,7 @@ namespace SageSDO
                                 transNo = oCreditNoteSplitData.Fields.Item("TRAN_NUMBER").Value;
                                 uniqueRef = oCreditNoteSplitData.Fields.Item("UNIQUE_REF").Value;
 
-                                 amount = netAmount + taxAmount;
+                                amount = netAmount + taxAmount;
                                 if (oPost.AllocatePayment(transNo, iSalesPaymentSplit, amount, System.DateTime.Now))
                                 {
                                     Console.WriteLine("allocated");
@@ -195,8 +234,8 @@ namespace SageSDO
                                 message = string.Format("CRN Details : {0}  Net : {1} VAT {2} TransNo {3} Unique Ref {4}", itemDetails, netAmount, taxAmount, transNo, uniqueRef);
 
                                 Console.WriteLine(message);
-                                
-                                
+
+
                                 Console.ReadLine();
 
                             }
@@ -266,7 +305,6 @@ namespace SageSDO
                         }
 
                         #endregion
-
 
                     };
 
