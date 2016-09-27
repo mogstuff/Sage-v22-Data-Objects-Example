@@ -48,8 +48,116 @@ namespace SageSDO
                 oWS.Connect(szDataPath, "manager", "$Password", "MORGAN TECH");
 
                 oSalesRecord = (SageDataObject220.SalesRecord)oWS.CreateObject("SalesRecord");
+                string sAccountRef1 = "BE001";
+                oSalesRecord.Fields.Item("ACCOUNT_REF").Value = sAccountRef1;
+
+                bool bFoundCustomer = oSalesRecord.Find(false);
+
+                // loop through headers and output details
+                if (bFoundCustomer)
+                {
+                    // start reading customers header records from the top
+                    oHeaderData = (SageDataObject220.HeaderData)oSalesRecord.Link;
+                    oHeaderData.MoveFirst();
+
+                    int iPaymentFirstSplit = 0;// payment to allocate
+                    int iInvoiceFirstSplit = 0;
+                    int iInvoiceLastSplit = 0;
+                    double dReceiptValue = 0;
+
+                    do
+                    {
+                        sbyte hType = oHeaderData.Fields.Item("TYPE").Value;
+
+                        string sINV_REF = oHeaderData.Fields.Item("INV_REF").Value;
+
+                        int iUniqueRef = oHeaderData.Fields.Item("UNIQUE_REF").Value;
+
+                        int iFirstSplit = oHeaderData.Fields.Item("FIRST_SPLIT").Value;
+
+                        int iLastSplit = oHeaderData.Fields.Item("LAST_SPLIT").Value;
+
+                        string strDetails = oHeaderData.Fields.Item("DETAILS").Value;
+
+                        if (sINV_REF == "PAYINV6")
+                        {
+                            iPaymentFirstSplit = iFirstSplit;
+                        }
+
+
+                        if (sINV_REF == "6")
+                        {
+                            iInvoiceFirstSplit = iFirstSplit;
+                            iInvoiceLastSplit = iLastSplit;
+                        }
+
+
+                    } while (!(!(oHeaderData.MoveNext())));
+
+
+                    // found the split Nos so go to First Invoice Split and keep going until the last invoice split
+                    if (iInvoiceFirstSplit > 0 && iInvoiceLastSplit > 0 && iPaymentFirstSplit > 0)
+                    {
+
+                        SageDataObject220.SplitData paySplitData = (SageDataObject220.SplitData)oWS.CreateObject("SplitData");
+                        paySplitData.Read(iPaymentFirstSplit);
+
+                        double netAmountReceipt = paySplitData.Fields.Item("NET_AMOUNT").Value;
+                        double taxAmountReceipt = paySplitData.Fields.Item("TAX_AMOUNT").Value;
+
+                        dReceiptValue = netAmountReceipt + taxAmountReceipt;
+
+                        SageDataObject220.SplitData invSplitData = (SageDataObject220.SplitData)oWS.CreateObject("SplitData");
+
+                        invSplitData.Read(iInvoiceFirstSplit);
+
+                        int intTNo = invSplitData.Fields.Item("TRAN_NUMBER").Value;
+
+                        double dAmountAllocated = 0;
+
+                        do
+                        {
+
+                            intTNo = invSplitData.Fields.Item("TRAN_NUMBER").Value;
+
+                            // get the total amount
+                            double netAmount = invSplitData.Fields.Item("NET_AMOUNT").Value;
+                            double taxAmount = invSplitData.Fields.Item("TAX_AMOUNT").Value;
+                            double totalTransactionAmount = netAmount + taxAmount;
+                            int transNo = invSplitData.Fields.Item("TRAN_NUMBER").Value;
+
+                            // allocate it against the Payment
+                            // Create Audit Trail Transaction Object
+                            SageDataObject220.TransactionPost oPostPaymentAllocation = (SageDataObject220.TransactionPost)oWS.CreateObject("TransactionPost");
+
+                            double amount = netAmount + taxAmount;
+
+                            if (dAmountAllocated <= dReceiptValue)
+                            {
+
+                                if (oPostPaymentAllocation.AllocatePayment(transNo, iPaymentFirstSplit, amount, System.DateTime.Now))
+                                {
+                                    Console.WriteLine(string.Format("transNo {0} allocated net {1} tax {2}", transNo, netAmount, taxAmount));
+
+                                    dAmountAllocated += amount;
+                                }
+                            }
+
+                            invSplitData.MoveNext();
+
+                        } while (invSplitData.RecordNumber <= iInvoiceLastSplit);
+
+
+                    }
+
+
+                }
+
+
+                oSalesRecord = (SageDataObject220.SalesRecord)oWS.CreateObject("SalesRecord");
                 string sAccountRef = "A001";
                 oSalesRecord.Fields.Item("ACCOUNT_REF").Value = sAccountRef;
+
 
                 // Get the Customer Record
                 if (oSalesRecord.Find(false))
@@ -61,7 +169,7 @@ namespace SageSDO
 
                     // get first split for Payment ?
                     iSalesPaymentSplit = 15;
-                    
+
                     // get Splits for Credit Note INV_REF "5"
                     do
                     {
@@ -84,11 +192,11 @@ namespace SageSDO
 
                                 SageDataObject220.TransactionPost oPostSalesPaymentSalesCreditAllocation = (SageDataObject220.TransactionPost)oWS.CreateObject("TransactionPost");
 
-                              
+
                                 double amount = netAmount + taxAmount;
                                 if (oPostSalesPaymentSalesCreditAllocation.AllocatePayment(transNo, iSalesPaymentSplit, amount, System.DateTime.Now))
                                 {
-                                    Console.WriteLine(string.Format("transNo {0} allocated net {1} tax {2}",transNo,netAmount,taxAmount));
+                                    Console.WriteLine(string.Format("transNo {0} allocated net {1} tax {2}", transNo, netAmount, taxAmount));
                                 }
 
 
